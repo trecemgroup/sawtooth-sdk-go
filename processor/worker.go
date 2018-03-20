@@ -28,16 +28,24 @@ import (
 )
 
 // The main worker thread finds an appropriate handler and processes the request
-func worker(context *zmq.Context, uri string, queue <-chan *validator_pb2.Message, done chan<- bool, handlers []TransactionHandler) {
+func worker(context *zmq.Context, validator string, uri string, queue <-chan *validator_pb2.Message, done chan<- bool, handlers []TransactionHandler) {
+	// Connect to the validator thread
+	validatorConnection, err := messaging.NewConnection(context, zmq.DEALER, validator, false)
+	if err != nil {
+		logger.Errorf("Failed to connect to validator thread: %v", err)
+		return
+	}
+	defer validatorConnection.Close()
+
 	// Connect to the main send/receive thread
-	connection, err := messaging.NewConnection(context, zmq.DEALER, uri, false)
+	responseConnection, err := messaging.NewConnection(context, zmq.DEALER, uri, false)
 	if err != nil {
 		logger.Errorf("Failed to connect to main thread: %v", err)
 		done <- false
 		return
 	}
-	defer connection.Close()
-	id := connection.Identity()
+	defer responseConnection.Close()
+	id := responseConnection.Identity()
 
 	// Receive work off of the queue until the queue is closed
 	for msg := range queue {
@@ -61,7 +69,7 @@ func worker(context *zmq.Context, uri string, queue <-chan *validator_pb2.Messag
 
 		// Construct a new Context instance for the handler
 		contextId := request.GetContextId()
-		context := NewContext(connection, contextId)
+		context := NewContext(validatorConnection, contextId)
 
 		// Run the handler
 		err = handler.Apply(request, context)
@@ -92,6 +100,7 @@ func worker(context *zmq.Context, uri string, queue <-chan *validator_pb2.Messag
 			}
 		} else {
 			response.Status = processor_pb2.TpProcessResponse_OK
+			response.ExtendedData = context.GetReceiptData()
 		}
 
 		responseData, err := proto.Marshal(response)
@@ -100,8 +109,8 @@ func worker(context *zmq.Context, uri string, queue <-chan *validator_pb2.Messag
 			break
 		}
 
-		// Send back a response to the validator
-		err = connection.SendMsg(
+		// Send back a response
+		err = responseConnection.SendMsg(
 			validator_pb2.Message_TP_PROCESS_RESPONSE,
 			responseData, msg.GetCorrelationId(),
 		)
