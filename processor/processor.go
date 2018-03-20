@@ -20,15 +20,15 @@ package processor
 import (
 	"fmt"
 	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/sawtooth-sdk-go/logging"
-	"github.com/hyperledger/sawtooth-sdk-go/messaging"
-	"github.com/hyperledger/sawtooth-sdk-go/protobuf/network_pb2"
-	"github.com/hyperledger/sawtooth-sdk-go/protobuf/processor_pb2"
-	"github.com/hyperledger/sawtooth-sdk-go/protobuf/validator_pb2"
 	zmq "github.com/pebbe/zmq4"
 	"os"
 	"os/signal"
 	"runtime"
+	"github.com/grkvlt/sawtooth-sdk-go/logging"
+	"github.com/grkvlt/sawtooth-sdk-go/messaging"
+	"github.com/grkvlt/sawtooth-sdk-go/protobuf/network_pb2"
+	"github.com/grkvlt/sawtooth-sdk-go/protobuf/processor_pb2"
+	"github.com/grkvlt/sawtooth-sdk-go/protobuf/validator_pb2"
 	"time"
 )
 
