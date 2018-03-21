@@ -40,24 +40,26 @@ const DEFAULT_MAX_WORK_QUEUE_SIZE = 100
 // and routing transaction processing requests to a registered handler. It uses
 // ZMQ and channels to handle requests concurrently.
 type TransactionProcessor struct {
-	uri         string
-	ids         map[string]string
-	handlers    []TransactionHandler
-	nThreads    uint
-	maxQueue    uint
-	shutdown_tx messaging.Connection
+	uri string
+	bind string
+	ids map[string]string
+	handlers []TransactionHandler
+	nThreads uint
+	maxQueue uint
+	shutdown chan bool
 }
 
 // NewTransactionProcessor initializes a new Transaction Process and points it
 // at the given URI. If it fails to initialize, it will panic.
-func NewTransactionProcessor(uri string) *TransactionProcessor {
+func NewTransactionProcessor(uri string, bind string) *TransactionProcessor {
 	return &TransactionProcessor{
-		uri:         uri,
-		ids:         make(map[string]string),
-		handlers:    make([]TransactionHandler, 0),
-		nThreads:    uint(runtime.GOMAXPROCS(0)),
-		maxQueue:    DEFAULT_MAX_WORK_QUEUE_SIZE,
-		shutdown_tx: nil,
+		uri:      uri,
+		bind:     bind,
+		ids:      make(map[string]string),
+		handlers: make([]TransactionHandler, 0),
+		nThreads: uint(runtime.GOMAXPROCS(0)),
+		maxQueue: DEFAULT_MAX_WORK_QUEUE_SIZE,
+		shutdown: make(chan bool),
 	}
 }
 
@@ -108,7 +110,7 @@ func (self *TransactionProcessor) start(context *zmq.Context) (bool, error) {
 	}
 
 	// Open a listener socker
-	listener, err := messaging.NewConnection(context, zmq.DEALER, "tcp://*:4004", true)
+	listener, err := messaging.NewConnection(context, zmq.DEALER, self.bind, true)
 	if err != nil {
 		return restart, fmt.Errorf("Could not bind listener connection: %v", err)
 	}
