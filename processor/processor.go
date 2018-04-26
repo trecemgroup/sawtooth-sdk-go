@@ -40,26 +40,26 @@ const DEFAULT_MAX_WORK_QUEUE_SIZE = 100
 // and routing transaction processing requests to a registered handler. It uses
 // ZMQ and channels to handle requests concurrently.
 type TransactionProcessor struct {
-	uri string
-	bind string
-	ids map[string]string
-	handlers []TransactionHandler
-	nThreads uint
-	maxQueue uint
-	shutdown chan bool
+	uri         string
+	bind        string
+	ids         map[string]string
+	handlers    []TransactionHandler
+	nThreads    uint
+	maxQueue    uint
+	shutdown_tx messaging.Connection
 }
 
 // NewTransactionProcessor initializes a new Transaction Process and points it
 // at the given URI. If it fails to initialize, it will panic.
 func NewTransactionProcessor(uri string, bind string) *TransactionProcessor {
 	return &TransactionProcessor{
-		uri:      uri,
-		bind:     bind,
-		ids:      make(map[string]string),
-		handlers: make([]TransactionHandler, 0),
-		nThreads: uint(runtime.GOMAXPROCS(0)),
-		maxQueue: DEFAULT_MAX_WORK_QUEUE_SIZE,
-		shutdown: make(chan bool),
+		uri:         uri,
+		bind:        bind,
+		ids:         make(map[string]string),
+		handlers:    make([]TransactionHandler, 0),
+		nThreads:    uint(runtime.GOMAXPROCS(0)),
+		maxQueue:    DEFAULT_MAX_WORK_QUEUE_SIZE,
+		shutdown_tx: nil,
 	}
 }
 
@@ -151,8 +151,6 @@ func (self *TransactionProcessor) start(context *zmq.Context) (bool, error) {
 		go worker(context, "inproc://validator", "inproc://validator", queueValidator, workers_done, self.handlers)
 		go worker(context, "inproc://validator", "inproc://listener", queueListener, workers_done, self.handlers)
 	}
-	// Setup shutdown thread
-	go shutdown(context, "inproc://validator", queueValidator, queueListener, self.shutdown)
 
 	// Register all handlers with the validator
 	for _, handler := range self.handlers {
@@ -180,6 +178,7 @@ func (self *TransactionProcessor) start(context *zmq.Context) (bool, error) {
 	poller.Add(monitor, zmq.POLLIN)
 	poller.Add(workersValidator.Socket(), zmq.POLLIN)
 	poller.Add(workersListener.Socket(), zmq.POLLIN)
+	poller.Add(shutdown_rx.Socket(), zmq.POLLIN)
 
 	// Poll for messages from worker threads or zmq connections
 	for {
@@ -205,7 +204,7 @@ func (self *TransactionProcessor) start(context *zmq.Context) (bool, error) {
 				receiveWorkers(ids, listener, workersListener)
 
 			case shutdown_rx.Socket():
-				restart = receiveShutdown(queue, self.nThreads, workers_done, shutdown_rx, validator, workers, monitor)
+				restart = receiveShutdown(queueValidator, queueListener, self.nThreads, workers_done, shutdown_rx, validator, listener, workersValidator, workersListener, monitor)
 				return restart, nil
 			}
 		}
@@ -383,7 +382,7 @@ func receiveWorkers(ids map[string]string, source, workers messaging.Connection)
 }
 
 // Handle shutdown
-func receiveShutdown(queue chan *validator_pb2.Message, worker_count uint, done <-chan bool, shutdown_rx, validator, workers messaging.Connection, monitor *zmq.Socket) bool {
+func receiveShutdown(queueValidator chan *validator_pb2.Message, queueListener chan *validator_pb2.Message, worker_count uint, done <-chan bool, shutdown_rx, validator, listener, workersValidator messaging.Connection, workersListener messaging.Connection, monitor *zmq.Socket) bool {
 	_, data, err := shutdown_rx.RecvData()
 	if err != nil {
 		logger.Errorf("Error receiving shutdown: %v", err)
@@ -399,7 +398,7 @@ func receiveShutdown(queue chan *validator_pb2.Message, worker_count uint, done 
 	}
 
 	logger.Infof("Received command to %v", cmd)
-	err = shutdown(queue, worker_count, done, shutdown_rx, validator, workers, monitor, restart)
+	err = shutdown(queueValidator, queueListener, worker_count, done, shutdown_rx, validator, listener, workersValidator, workersListener, monitor, restart)
 	if err != nil {
 		logger.Errorf("Error shutting down: %v", err)
 		return false
@@ -407,13 +406,15 @@ func receiveShutdown(queue chan *validator_pb2.Message, worker_count uint, done 
 	return restart
 }
 
-func shutdown(queue chan *validator_pb2.Message, worker_count uint, workers_done <-chan bool, shutdown_rx, validator, workers messaging.Connection, monitor *zmq.Socket, force bool) error {
-	// Close the work queue, telling the worker threads there's no more work
-	close(queue)
+func shutdown(queueValidator chan *validator_pb2.Message, queueListener chan *validator_pb2.Message, worker_count uint, workers_done <-chan bool, shutdown_rx, validator, listener, workersValidator messaging.Connection, workersListener messaging.Connection, monitor *zmq.Socket, force bool) error {
+	// Close the work queues, telling the worker threads there's no more work
+	close(queueValidator)
+	close(queueListener)
 
 	// Close the workers connection, causing any workers that try to send/recv
 	// to get an error
-	workers.Close()
+	workersValidator.Close()
+	workersListener.Close()
 
 	// Close the monitor socket
 	monitor.Close()
@@ -465,12 +466,13 @@ func shutdown(queue chan *validator_pb2.Message, worker_count uint, workers_done
 	}
 
 	validator.Close()
+	listener.Close()
 	shutdown_rx.Close()
 
 	// Wait for worker threads to die
 	for i := uint(0); i < worker_count; i++ {
 		logger.Debugf("Workers done %v/%v", i, worker_count)
-		<-workers_done
+        <-workers_done
 	}
 	logger.Debugf("Workers done %v/%v", worker_count, worker_count)
 
