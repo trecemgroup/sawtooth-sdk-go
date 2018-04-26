@@ -14,7 +14,7 @@ mkdir -p  protobuf mocks/mock_messaging
 ./protogen
 
 # Update import paths on generated protos
-repourl=github.com/hyperledger/sawtooth-sdk-go
+repourl=github.com/grkvlt/sawtooth-sdk-go
 grep -rl '"protobuf/' protobuf/ | while IFS= read -r file; do
     sed -i "s|\"protobuf/|\"${repourl}/protobuf/|" "$file"
 done
