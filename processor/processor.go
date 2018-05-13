@@ -24,11 +24,11 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
-	"github.com/grkvlt/sawtooth-sdk-go/logging"
-	"github.com/grkvlt/sawtooth-sdk-go/messaging"
-	"github.com/grkvlt/sawtooth-sdk-go/protobuf/network_pb2"
-	"github.com/grkvlt/sawtooth-sdk-go/protobuf/processor_pb2"
-	"github.com/grkvlt/sawtooth-sdk-go/protobuf/validator_pb2"
+	"github.com/blockchaintp/sawtooth-sdk-go/logging"
+	"github.com/blockchaintp/sawtooth-sdk-go/messaging"
+	"github.com/blockchaintp/sawtooth-sdk-go/protobuf/network_pb2"
+	"github.com/blockchaintp/sawtooth-sdk-go/protobuf/processor_pb2"
+	"github.com/blockchaintp/sawtooth-sdk-go/protobuf/validator_pb2"
 	"time"
 )
 
